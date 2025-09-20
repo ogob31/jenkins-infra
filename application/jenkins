@@ -1,0 +1,71 @@
+pipeline {
+    agent {
+        dockerfile {
+            filename 'Dockerfile.jenkins-agent' // Uses this Dockerfile to build the agent
+            args '-v /var/run/docker.sock:/var/run/docker.sock' // Gives the agent access to the host's Docker
+        }
+    }
+    environment {
+        // Loads the credentials stored in Jenkins and makes them available as environment variables
+        DOCKERHUB_CREDENTIALS = credentials('docker-hub-creds')
+    }
+    stages {
+        stage('Build Agent Image') {
+            steps {
+                script {
+                    // Build the custom agent image
+                    docker.build("george524/my-jenkins-agent:latest", "-f Dockerfile.jenkins-agent .")
+                    // Log in to Docker Hub using the credentials from Jenkins
+                    sh "echo \$DOCKERHUB_CREDENTIALS_PSW | docker login -u \$DOCKERHUB_CREDENTIALS_USR --password-stdin"
+                    // Push the custom agent image to Docker Hub
+                    docker.image("george524/my-jenkins-agent:latest").push()
+                }
+            }
+        }
+        stage('Build App Image') {
+            steps {
+                script {
+                    // Build the application image
+                    docker.build("george524/my-sample-app:\${env.BUILD_NUMBER}")
+                }
+            }
+        }
+        stage('Test') {
+            steps {
+                script {
+                    // Run the application container in the background
+                    testContainer = docker.run("george524/my-sample-app:\${env.BUILD_NUMBER}", "-d -p 5000:5000 --name test-app")
+                    // Wait for the app to start
+                    sleep time: 5, unit: 'SECONDS'
+                    // Run a simple test - curl the homepage to check for a successful response
+                    sh 'curl --fail http://localhost:5000'
+                }
+            }
+            post {
+                always {
+                    script {
+                        // Clean up the test container, even if the stage fails
+                        sh 'docker stop test-app || true'
+                        sh 'docker rm test-app || true'
+                    }
+                }
+            }
+        }
+        stage('Push App Image') {
+            steps {
+                script {
+                    // Log in to Docker Hub again (to be safe)
+                    sh "echo \$DOCKERHUB_CREDENTIALS_PSW | docker login -u \$DOCKERHUB_CREDENTIALS_USR --password-stdin"
+                    // Push the application image to Docker Hub
+                    docker.image("george524/my-sample-app:\${env.BUILD_NUMBER}").push()
+                }
+            }
+        }
+    }
+    post {
+        always {
+            // Always log out of Docker Hub after the pipeline runs
+            sh 'docker logout'
+        }
+    }
+}

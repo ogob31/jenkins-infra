@@ -1,0 +1,15 @@
+# Start from a base image with Python
+FROM python:3.9-slim-buster
+
+# Install system dependencies: Docker CLI, Java (for Jenkins agent), Git, curl
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    docker.io \
+    default-jdk \
+    git \
+    curl \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python test dependencies
+RUN pip install --no-cache-dir pytest
